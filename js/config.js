@@ -1,6 +1,6 @@
 // ── Google Maps Static API ───────────────────────────────────
 // Get key from console.cloud.google.com → Maps Static API
-const GOOGLE_MAPS_KEY = 'AIzaSyD_BTae4El0h9lOSdu-6ajGODlpDLaBHxU';
+const GOOGLE_MAPS_KEY = 'AIzaSyCxE5yNSOhZPcy8FgbaX0idJVUmvD-Wf7o';
 
 // ── Supabase config ──────────────────────────────────────────
 const SUPABASE_URL  = 'https://mvntodsdjftfjbcrvedn.supabase.co';
@@ -19,5 +19,5 @@ const COMPANY = {
   phone:   '0419 560 650',
   email:   'info@sharkcctvss.com.au',
   website: 'sharkcctvss.com.au',
-  abn:     '',
+  abn:     '',               // fill in if needed
 };
