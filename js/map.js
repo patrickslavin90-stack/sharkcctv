@@ -8,182 +8,93 @@ const MapView = (() => {
   let activePlaceProduct = null;
   let isDragging = false, dragIdx = -1, dragStartAngle = 0, dragStartX = 0;
   let onChangeCallback = null;
-  let mapState = { loaded: false, loading: false, img: null, address: null, zoom: 20, source: 'demo' };
-  const CAMVHITR_RADIUS = 18;
+
+  let mapState = {
+    loaded:  false,
+    loading: false,
+    img:     null,
+    address: null,
+    zoom:    20,
+    source:  'demo', // 'google' | 'demo'
+  };
+
+  const CAM_HIT_RADIUS = 18;
 
   function init(canvasEl, onChangeCb) {
     canvas = canvasEl; ctx = canvas.getContext('2d'); onChangeCallback = onChangeCb;
     canvas.addEventListener('click', onCanvasClick);
-    canvas.addEventListener('touchstart', onTouchStart, {passive:false});
-    canvas.addEventListener('touchmove', onTouchMove, {passive:false});
-    canvas.addEventListener('touchend', onTouchEnd, {passive:false});
-    window.addEventListener('resize', resize);
-    resize();
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+    canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+    window.addEventListener('resize', resize); resize();
   }
 
   function resize() {
     if (!canvas) return;
     const wrap = canvas.parentElement;
     canvas.width = wrap.clientWidth; canvas.height = wrap.clientHeight;
-    if (mapState.loaded && mapState.coords) { loadMapForAddress(mapState.coords); }
-    else { draw(); }
+    if (mapState.loaded && mapState.coords) loadMapForAddress(mapState.coords); else draw();
   }
-
-  function setTool(tool) {
-    currentTool = tool;
-    canvas.style.cursor = tool==='delete'?'not-allowed':tool==='rotate'?'grab':'crosshair';
-  }
-
+  function setTool(t) { currentTool = t; canvas.style.cursor = t==='delete'?'not-allowed':t==='rotate'?'grab':'crosshair'; }
   function setActivePlaceProduct(p) { activePlaceProduct = p; }
-  function setCameras(cams) { cameras = cams || []; draw(); }
+  function setCameras(c) { cameras = c||[]; draw(); }
   function getCameras() { return cameras; }
 
   async function searchAddress(address) {
     if (!address.trim()) return null;
-    const query = address.toLowerCase().includes('australia')?address:address+', Australia';
+    const q = address.toLowerCase().includes('australia') ? address : address+', Australia';
     try {
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=au`;
-      const res = await fetch(url,{headers:{'Accept-Language':'en'}});
-      const data = await res.json();
-      if (!data.length) return null;
-      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), display: data[0].display_name };
-    } catch(err) { return null; }
+      const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&countrycodes=au`,{headers:{'Accept-Language':'en'}});
+      const d = await r.json();
+      if (!d.length) return null;
+      return { lat: parseFloat(d[0].lat), lng: parseFloat(d[0].lon), display: d[0].display_name };
+    } catch(e) { console.error(e); return null; }
   }
 
   async function loadMapForAddress(coords) {
-    const key = (typeof GOOGLE_MAPS_KEY!=='undefined')?GOOGLE_MAPS_KEY:'';
-    if (!key) return false;
-    mapState.loading = true; mapState.coords = coords; mapState.img = null; mapState.loaded = false;
-    draw();
-    const w = Math.max(Math.min(canvas.width,320),100);
-    const h = Math.max(Math.min(canvas.height,320),100);
-    const url = `https://maps.googleapis.com/maps/api/staticmap?center=${coords.lat},${coords.lng}&zoom=${mapState.zoom}&size=${w}x${h}&scale=2&maptype=satellite&key=${key}`;
-    return new Promise(resolve => {
-      const img = new Image();
-      img.onload = () => { mapState.img = img; mapState.loaded = true; mapState.loading = false; mapState.source = 'google'; draw(); resolve(true); };
-      img.onerror = () => { mapState.loading = false; mapState.source = 'demo'; draw(); resolve(false); };
-      img.src = url;
+    mapState.loading=true; mapState.coords=coords; mapState.img=null; mapState.loaded=false; draw();
+    const w=Math.max(Math.min(canvas.width,640),100),h=Math.max(Math.min(canvas.height,640),100),zoom=mapState.zoom;
+    const SU =(typeof SUPABASE_URL  !=='undefined')?SUPABASE_URL:'';
+    const SA =(typeof SUPABASE_ANON!=='undefined')?SUPABASE_ANON:'';
+    let tok=SA;
+    try { const sb=supabase.createClient(SU,SA);const{data:{session}}=await sb.auth.getSession();if(session?.access_token)tok=session.access_token;} catch(e){}
+    const url=`${SU}/functions/v1/maps-proxy?lat=${coords.lat}&lng=${coords.lng}&zoom=${zoom}&w=${w}&h=${h}`;
+    return new Promise(res=>{
+      fetch(url,{headers:{'Authorization':'Bearer '+tok}})
+      .then(r=>{if(!r.ok)throw new Error(r.status);return r.blob();})
+      .then(b=>{const o=URL.createObjectURL(b);const i=new Image();i.onload=()=>{mapState.img=i;mapState.loaded=true;mapState.loading=false;mapState.source='google';draw();res(true);};i.onerror=()=>{driw();res(false);};i.src=o;})
+      .catch(()=> {mapState.loading=false;mapState.source='demo';d­¬7();res(false);});
     });
   }
 
-  function clearMap() { mapState={loaded:false,loading:false,img:null,coords:null,zoom:20,source:'demo'}; draw(); }
+  function clearMap(){mapState={loaded:false,loading:false,img:null,coords:null,zoom:20,source:'demo'};draw();}
+  function setZoom(z) {mapState.zoom=Math.max(15,Math.min(21,z));if(mapState.address)loadMapForAddress(mapState.address);}
 
-  function draw() {
-    if (!canvas) return;
-    const w=canvas.width,h=canvas.height;
-    ctx.clearRect(0,0,w,h);
-    if (mapState.loading) { drawLoading(w,h); return; }
-    if (mapState.loaded && mapState.img) {
-      const img=mapState.img, iW=img.naturalWidth/2, iH=img.naturalHeight/2;
-      const sc=Math.max(w/iW,h/iH), dw=iW*sc, dh=iH*sc, dx=(w-dw)/2, dy=(h-dh/2);
-      ctx.drawImage(img,dx,dy,dw,dh);
-    } else {
-      ctx.fillStyle='#0f1419'; ctx.fillRect(0,0,w,h);
-      drawDemoProperty(w,h);
-    }
+  function draw(){if(!canvas)return;const w=canvas.width,h=canvas.height;ctx.clearRect(0,0,w,h);
+    if(mapState.loading){drawLoading(w,h);return;}
+    if(mapState.loaded&&mapState.img){const im=mapState.img,iW=im.naturalWidth/2,iH=im.naturalHeight/2,sc=Math.max(w/iW,h/iH);ctx.drawImage(im,(w-iW*sc)/2,(h-iH*sc)/2,iW*sc,iH*sc);const g=ctx.createRadialGradient(w/2,h/2,h*.3,w/2,h/2,h*.75);g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(0,0,0,.35)');ctx.fillStyle=g;ctx.fillRect(0,0,w,h);}
+    else{ctx.fillStyle='#0f1419';ctx.fillRect(0,0,w,h);drawDemoProperty(w,h);}
     cameras.forEach((cam,i) => drawFOV(cam,i===selectedIdx));
     cameras.forEach((cam,i) => drawIcon(cam,i===selectedIdx));
   }
 
   let _raf=null;
-  function drawLoading(w,h) {
-    ctx.fillStyle='#0a0c0f'; ctx.fillRect(0,0,w,h);
-    const cx=w/2,cy=h/2,t=Date.now()/300;
-    for(let i=0;i<8;i++){const a=(i/8)*Math.PI*2-t;const x=cx+Math.cos(a)*22,`y=cy+Math.sin(a)*22;ctx.fillStyle=`rgba(41,171,226,${(0.15+0.85*(i/8)).toFixed(2)})`;ctx.beginPath();ctx.arc(x,y,3.5,0,Math.PI*2);ctx.fill();}
-    ctx.fillStyle='rgba(41,171,226,0.7)';ctx.font='bold 13px Barlow Condensed,sans-serif';ctx.textAlign='center';
-    ctx.fillText('Loading satellite imageryâ€¦',cx,cy;46);
-    cancelAnimationFrame(_raf); _raf=requestAnimationFrame(()=>{if(mapState.loading)draw();});
+  function drawLoading(w,h){ctx.fillStyle='#0a0c0f';ctx.fillRect(0,0,w,h);const cx=w/2,cy=h/2,t=Date.now()/300;
+    for(let i=0;i<8;i++){const a=(i/8)*Math.PI*2-t,x=cz+Math.cos(a)*22,y=cy+Math.sin(a)*22;ctx.fillStyle=`rgba(41,171,226,${(.15+.85*(i/8)).toFixed(2)})`;ctx.beginPath();ctx.arc(x,y+3.5,0,Math.PI*2);ctx.fill();}
+    ctx.fillStyle='rgba(41,171,226,.7)';ctx.font='bold 13px Barlow Condensed,sans-serif';ctx.textAlign='center';ctx.fillText('Loading satellite imageryâ€¦',cx,cy+46);
+    cancelAnimationFrame(_raf);_raf=requestAnimationFrame(()=>{if(mapState.loading)draw();});
   }
 
-  function drawDemoProperty(w,h) {
-    const cx=w/2,cy=h/2;
-    ctx.fillStyle='#1a2030';ctx.fillRect(0(h-50),w50);
-    const pW=Math.min(w*0.72,340),pH=Math.min(h*0.55,230);
-    const pX=cx-pW/2,pY=cy-pH/2-10;
-    ctx.fillStyle='#1c2535';ctx.fillRect(pX,pY,pW,pH);
-    ctx.strokeStyle='#2a3a50';ctx.lineWidth=1.5;ctx.strokeRect(pX,pY,pW,pH);
-    ctx.fillStyle='rgba(41,171,226,0.38)';ctx.font=`500 ${Math.max(9,w*0.02)}px Barlow,sans-serif`;ctx.textAlign='center';
-    ctx.fillText('HOUSE',cx-0,cy-2);
-    ctx.fillStyle='rgba(41,171,226,0.3)';ctx.font=`500 ${Math.max(10,w*0.022)}px Barlow,sans-serif`;
-    ctx.fillText('Search an address above for satellite view',cx,pY-22);
+  function drawDemoProperty(w,h){const cx=w/2,cy=h/2,pW=Math.min(w*.72,340),pH=Math.min(h*.55,230),pX=cx-pW/n,pY=cy-pH/2-10;
+    ctx.fillStyle='#1c2535';ctx.fillRect(pX,pY,pW,pH);ctx.strokeStyle='#2a3a50';ctx.lineWidth=1.5;ctx.strokeRect(pX,pY,pW,pH);
+    ctx.textAlign='center';const fs=Math.max(9,w*.02);
+    ctx.fillStyle='rgba(41,171,226,.38)';ctx.font=`500 ${fs}px Barlow,sans-serif`;ctx.fillText('HOUSE',cx,cy);
+    ctx.fillStyle='rgba(41,171,226,.3)';ctx.font=`500 ${Math.max(10,w*.022)}px Barlow,sans-serif`;ctx.fillText('Search an address above for satellite view',cx,pY-16);
   }
+  function drawTree(x,y) {ctx.fillStyle='#0f2018';ctx.beginPath();ctx.arc(x,y,10,0,Math.PI*2);ctx.fill();}
+  function hexToRgb(h){h=(h||'#29ABE2').replace('#','');if(h.length===3)h=h.split('').map(c=>c+c).join('');return{r:parseInt(h.slice(0,2),16),g:parseInt(h.slice(2,4),16),b:parseInt(h.slice(4,6),16)};}
+  function drawFOV(cam,sel){if(!cam.fov_deg||!cam.range_m)return;const f=(cam.fov_deg*Math.PH)/180,r=cam.range_m*(canvas.height/300),a=(cam.angle||270)*(Math.PI/180),{r,g,b}=hezToRgb(cam.color);ctx.save();ctx.beginPath();ctx.moveTo(cam.x,cam.y);ctx.arc(cam.x,cam.y,r,a-f/2,a+f/2);ctx.closePath();ctx.fillStyle=`rgba(${r},${g},${b},${sel?.28:.15})`;ctx.fill();ctx.strokeStyle=`rgba(${r},${g},${b},${sel?.9:.55})`;ctx.lineWidth=sel?2:1.5;ctx.stroke();ctx.restore();}
+  function drawIcon(cam,sel){const sz=sel?sel:11:9,cl=cam.color||'#29ABE2';ctx.save();ctx.translate(cam.x,cam.y);if(sel){ctx.beginPath();ctx.arc(0,0,18,0,Math.PI*2);ctx.strokeStyle=cl;ctx.lineWidth=1.5;ctx.globalAlpha=.5;ctx.stroke();ctx.globalAlpha=1;}ctx.shadowColor='rgba(0,0,0,0.9)';ctx.shadowBlur=8;ctx.beginPath();ctx.arc(0,0,sz,0,Math.PI*2);ctx.fillStyle=sel?cl:'rgba(10,14,20,.88)';ctx.fill();ctx.strokeStyle=cl;ctx.lineWidth=2;ctx.stroke();ctx.shadowBlur=0;ctx.beginPath();ctx.arc(0,0,3,0,Math.PI*2);ctx.fillStyle=sel?'#fff':cl;ctx.fill();if(cam.label){const fs=Math.max(9,canvas.width*.022);ctx.shadowColor='rgba(0,0,0.95)';ctx.shadowBlur=5;ctx.font=`bold ${fs}px Barlow Condensed,sans-serif`;ctx.fillStyle=cl;ctx.textAlign='center';ctx.fillText(cam.label,0,-sz-4);ctx.shadowBlur=0;}ctx.restore();}
+  function hitTest(x,y) {for(lj/¤¤õ…µ•É…Ì¹±•¹Ñ ´Äí¤øôÀí¤´´¥í¥˜¡5…Ñ ¹¡åÁ½Ð¡àµ…µ•É…Ím¥t¹à±äµ…µ•É…Ím¥t¹ä¤ñ5}!%Q}I%UL¥É•ÑÕÉ¸¤íõÉ•ÑÕÉ¸€´Äíô(€™Õ¹Ñ¥½¸¡…¹‘±•Q…À¡à±ä¤í¥˜¡ÕÉÉ•¹ÑQ½½°ôôô‘•±•Ñ”œ¥í½¹ÍÐ¤õ¡¥ÑQ•ÍÐ¡à±ä¤í¥˜¡¤øôÀ¥íÉ•µ½Ù•…µ•É„¡¤¤íÉ•ÑÕÉ¸íõõ½¹ÍÐ¤õ¡¥ÑQ•ÍÐ¡à±ä¤í¥˜¡¤øôÀ¥íÍ•±•Ñ•‘%‘àõ¤í‘É…Ü ¤í¥˜¡½¹¡…¹•…±±‰…¬¥½¹¡…¹•…±±‰…¬ Í•±•Ðœ±…µ•É…Ím¥t±¤¤íÉ•ÑÕÉ¸íõÍ•±•Ñ•‘%‘àõ¹Õ±°í¥˜¡½¹¡…¹•…±±‰…¬¥½¹¡…¹•…±±‰…¬ ‘•Í•±•Ðœ±¹Õ±°±¹Õ±°¤í¥˜¡ÕÉÉ•¹ÑQ½½°ôôôÁ±…”œ˜™…Ñ¥Ù•A±…•AÉ½‘ÕÐ¥Á±…•…µ•É„¡à±ä¤í•±Í”‘É…Ü ¤íô(€™Õ¹Ñ¥½¸Á±…•…µ•É„¡à±ä¥í½¹ÍÐŒõíà±ä°…¹±”èÈÜÀ±ÁÉ½‘ÕÑ}¥é…Ñ¥Ù•A±…•AÉ½‘ÕÐ¹¥±¹…µ”é…Ñ¥Ù•A±…•AÉ½‘ÕÐ¹¹…µ”±µ½‘•°é…Ñ¥Ù•A±…•AÉ½‘ÕÐ¹µ½‘•°±™½Ù}‘•œé…Ñ¥Ù•A±…•AÉ½‘ÕÐ¹™½Ù}‘•œ±É…¹•}´é…Ñ¥Ù•A±…•AÉ½‘ÕÐ¹É…¹•}´±½±½Èé…Ñ¥Ù•A±…•AÉ½‘ÕÐ¹½±½È±±…‰•°é…4íí…µ•É…Ì¹±•¹Ñ ¬Åõôí…µ•É…Ì¹ÁÕÍ ¡Œ¤íÍ•±•Ñ•‘%‘àõ…µ•É…Ì¹±•¹Ñ ´Äí‘É…Ü ¤í¥˜¡½¹¡…¹•…±±‰…¬¥½¹¡…¹•…±±‰…¬¢Á±…”œ±Œ±Í•±•Ñ•‘%‘à¤íô(€™Õ¹Ñ¥½¸É•µ½Ù•…µ•É„¡¤¥í½¹ÍÐŒõ…µ•É…Ím¥tí…µ•É…Ì¹ÍÁ±¥”¡¤°Ä¤í¥˜¡Í•±•Ñ•‘%‘àôôõ¤¥Í•±•Ñ•‘%‘àõ¹Õ±°í•±Í”¥˜¡Í•±•Ñ•‘%‘àù¤¥Í•±•Ñ•‘%‘à´´í‘É…Ü ¤í¥˜¡½¹¡…¹•…±±‰…¬¥½¹¡…¹•…±±‰…¬¢É•µ½Ù”œ±Œ±¤¤íô(€™Õ¹Ñ¥½¸É•µ½Ù•M•±•Ñ• ¥í¥˜¡Í•±•Ñ•‘%‘à„ôõ¹Õ±°¥É•µ½Ù•…µ•É„¡Í•±•Ñ•‘%‘à¤íô(€™Õ¹Ñ¥½¸É½Ñ…Ñ•M•±•Ñ•¡ôÐÔ¥í¥˜¡Í•±•Ñ•‘%‘àôôõ¹Õ±°¥É•ÑÕÉ¸í…µ•É…ÍmÍ•±•Ñ•‘%‘át¹…¹±”ô ¡…µ•É…ÍmÍ•±•Ñ•‘%‘át¹…¹±•ñðÈÜÀ¤­¬ÌØÀ¤”ÌØÀí‘É…Ü ¤í¥˜¡½¹¡…¹•…±±‰…¬¥½¹¡…¹•…±±‰…¬ É½Ñ…Ñ”œ±…µ•É…ÍmÍ•±•Ñ•‘%‘át±Í•±•Ñ•‘%‘à¤íô(€™Õ¹Ñ¥½¸±•…É±° ¥í…µ•É…ÌõmtíÍ•±•Ñ•‘%‘àõ¹Õ±°í‘É…Ü ¤í¥˜¡½¹¡…¹•…±±‰…¬¥½¹¡…¹•…±±‰…¬¢‚v6ÆV"rÆçVÆÂÆçVÆÂ“·Ð¢ÆWBF÷V6…7F'Eƒ#Ó°¢gVæ7F–öâöåF÷V6…7F'B†R—¶Rç&WfVçDFVfVÇB‚“¶6öç7BCÖRçF÷V6†W5³ÒÇ#Ö6çf2ævWD&÷VæF–æt6Æ–VçE&V7B‚“·F÷V6…7F'Eƒ#×Bæ6Æ–VçE‚×"æÆVgC¶–b†7W'&VçEFööÃÓÓÒw&÷FFRr—¶6öç7B“Ö†—EFW7B‡F÷V6…7F'Eƒ"ÇBæ6Æ–VçE’×"çF÷“¶–b†“ãÓ—¶—4G&vv–æs×G'VS¶G&t–GƒÖ“·6VÆV7FVD–GƒÖ“¶G&u7F'Eƒ×F÷V6…7F'Eƒ#¶G&u7F'DævÆSÖ6ÖW&5¶•ÒæævÆWÇÃ#s·××Ð¢gVæ7F–öâöåF÷V6„Ö÷fR†R—¶Rç&WfVçDFVfVÇB‚“¶–b‚—4G&vv–æwÇÆG&t–GƒÃ—&WGW&ã¶6öç7BCÖRçF÷V6†W5³ÒÇ#Ö6çf2ævWD&÷VæF–æt6Æ–VçE&V7B‚’ÆGƒÒ‡Bæ6Æ–VçE‚×"æÆVgB’ÖG&u7F'Eƒ¶6ÖW&5¶G&t–G…ÒæævÆSÒ†G&u7F'DævÆR¶G‚£ãR³3c’S3c¶G&r‚“¶–b†öä6†ævT6ÆÆ&6²–öä6†ævT6ÆÆ&6²Š‡&÷FFRrÆ6ÖW&5¶G&t–G…ÒÆG&t–G‚“·Ð¢gVæ7F–öâöåF÷V6„VæB†R—¶Rç&WfVçDFVfVÇB‚“¶–b‚—4G&vv–ær—¶6öç7BCÖRæ6†ævVEF÷V6†W5³ÒÇ#Ö6çf2ævWD&÷VæF–æt6Æ–VçE&V7B‚“¶†æFÆUF‡Bæ6Æ–VçE‚×"æÆVgBÇBæ6Æ–VçE’×"çF÷“·Ö—4G&vv–æsÖfÇ6S¶G&t–GƒÒÓ·Ð¢gVæ7F–öâöä6çf46Æ–6²†R—¶6öç7B#Ö6çf2ævWD&÷VæF–æt6Æ–VçE&V7B‚“¶†æFÆUF†Ræ6Æ–VçE‚×"æÆVgBÆRæ6Æ–VçE’×"çF÷“·Ð¢gVæ7F–öâ6†÷uFö7DW‡FW&æÂ†Ò—¶–b‡G—Vöb6†÷uFö7CÓÓÒvgVæ7F–öâr—6†÷uFö7B†ÒÂvW'&÷"r“¶VÇ6R6öç6öÆRçv&â†Ù;}
 
-  function hexJ4Rgb(hex) {
-    hex=$¨hex||'#29ABE2').replace('#','');
-    if(hex.length===3) hex=hex.split('').map(c=>c+c).join('');
-    return{(r:parseInt(hex.slice(0,2),16),g:parseInt(hex.slice(2,4),16),b:parseInt(hex.slice(4,6),16)};
-  }
-
-  function drawFOV(cam,sel) {
-    if (!cam.fov_deg||!cam.range_m) return;
-    const fR=(cam.fov_deg*Math.PI)/180, ran=cam.range_m*(canvas.height/300);
-    const ang=(cam.angle||270)*(Math.PI/180);
-    const {r,g,b}=hexToRgb(cam.color);
-    ctx.save();ctx.beginPath();ctx.moveTo(cam.x,cam.y);
-    ctx.arc(cam.x,cam.y,ran,ang-fR/2,ang+fR/2);ctx.closePath();
-    ctx.fillStyle=`rgba(${r3K${g},${b},${sel?0.28:0.15})`;ctx.fill();
-    ctx.strokeStyle=`rgba(${r3K${g},${b},${sel?0.9:0.55})`;ctx.lineWidth=sel?2:1.5;ctx.stroke();ctx.restore();
-  }
-
-  function drawIcon(cam,sel) {
-    const size=sel?11:9, color=cam.color||'#29ABE2';
-    ctx.save();ctx.translate(cam.x,cam.y);
-    if(sel){ctx.beginPath();ctx.arc(0,0,18,0,Math.PI*2);ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.globalAlpha=0.5;ctx.stroke();ctx.globalAlpha=1;}
-    ctx.shadowColor='rgba(0,0,0,0.9)';ctx.shadowBlur=8;
-    ctx.beginPath();ctx.arc(0,0,size,0,Math.PI*2);
-    ctx.fillStyle=sel?color:'rgba(10,14,20,0.88)';ctx.fill();
-    ctx.strokeStyle=color;ctx.lineWidth=2;ctx.stroke();
-    ctx.shadowBlur=0;ctx.beginPath();ctx.arc(0,0,3,0,Math.PI*2);
-    ctx.fillStyle=sel?'#fff':color;ctx.fill();
-    ctx.restore();
-  }
-
-  function hitTest(x,y) {
-    for(let i=cameras.length-1;i>=0;i--){ if(Math.hypot(x-cameras[i].x,y-cameras[i].y)<CAM_HIT_RADIUS)return i; } return -1;
-  }
-
-  function handleTap(x,y) {
-    if (currentTool==='delete') { const i=hitTest(x,y); if(i>=0){removeCamera(i);return;} }
-    const idx=hitTest(x,y);
-    if(idx>=0){ selectedIdx=idx;draw(); if(onChangeCallback)onChangeCallback('select',cameras[idx],idx); return; }
-    selectedIdx=null; if(onChangeCallback)onChangeCallback('deselect',null,null);
-    if(currentTool==='place'&&activePlaceProduct)placeCamera(x,y);
-    else draw();
-  }
-
-  function placeCamera(x,y) {
-    const cam={x,y,angle:270,product_id:activePlaceProduct.id,name:activePlaceProduct.name,model:activePlaceProduct.model,fov_deg:activePlaceProduct.fov_deg,range_m:activePlaceProduct.range_m,color:activePlaceProduct.color,label:`CAM${cameras.length+1}`};
-    cameras.push(cam); selectedIdx=cameras.length-1; draw();
-    if(onChangeCallback)onChangeCallback('place',cam,selectedIdx);
-  }
-
-  function removeCamera(idx) {
-    const cam=cameras[idx]; cameras.splice(idx,1);
-    if(selectedIdx===idx)selectedIdx=null; else if(selectedIdx>idx)selectedIdx--;
-    draw(); if(onChangeCallback)onChangeCallback, remove',cam,idx);
-  }
-
-  function removeSelected() { if(selectedIdx===null)return;removeCamera(selectedIdx); }
-
-  function rotateSelected(delta=45) {
-    if(selectedIdx===null)return;
-    cameras[selectedIdx].angle=((cameras[selectedIdx].angle||270)+delta+360)%360;
-    draw(); if(onChangeCallback)onChangeCallback('rotate',cameras[selectedIdx],selectedIdx);
-  }
-
-  function clearAll() { cameras=[]; selectedIdx=null; draw(); if(onChangeCallback)onChangeCallback('clear',
-    null,null); }
-
-  function onCanvasClick(e) { const r=canvas.getBoundingClientRect(); handleTap(e.clientX-r.left,e.clientY-r.top); }
-
-  let tsx0=0;
-  function onTouchStart(e) { e.preventDefault(); const t=e.touches[0],r=canvas.getBoundingClientRect(); tsx0=t.clientX-r.left;
-    if(currentTool==='rotate'){ const ty=t.clientY-r.top; const i=hitTest(tsx0,ty); if(i>=0){isDragging=true;dragIdx=i;selectedIdx=i;dragStartX=tsx0;dragStartAngle=cameras[i].angle||270;} }
-  }
-  function onTouchMove(e) { e.preventDefault(); if(!isDragging||dragIdx<0)return; const t=e.touches[0],r=canvas.getBoundingClientRect(); const dx=(t.clientX-r.left)-dragStartX; cameras[dragIdx].angle=(dragStartAngle+dx*%1.5+360)%360; draw(); if(onChangeCallback)onChangeCallback( rotate',cameras[dragIdx],dragIdx); }
-  function onTouchEnd(e) { e.preventDefault(); if(!isDragging){ const t=e.changedTouches[0],r=canvas.getBoundingClientRect(); handleTap(t.clientX-r.left,t.clientY-r.top); } isDragging=false; dragIdx=-1; }
-
-  function showToastExternal(msg) { if(typeof showToast==='function')showToast(msg,'error'); else console.warn(msg); }
-
-  return { init, resize, setTool, setActivePlaceProduct, setCameras, getCameras, rotateSelected, removeSelected, clearAll, searchAddress, loadMapForAddress, clearMap, setZoom: z=>{mapState.zoom=Math.max(15,Math.min(11,z));if(mapState.address)loadMapForAddress(mapState.address);}, getMapSource:()=>mapState.source, isLoaded:()=>mapState.loaded, getSelected:()=>selectedIdx!==null?cameras[selectedIdx]:null, getSelectedIdx:()=>selectedIdx, draw };
-})();
+  return {init,resize,setTool,setActivePlaceProduct,setCameras,getCameras,rotateSelected,removeSelected,clearAll,searchAddress,loadMapForAddress,clearMap,setZoom,getMapSource:()=>mapState.source,isLoaded:()=>mapState.loaded,getSelected:()=>selectedIdx!==null?cameras[selectedIdx]:null,getSelectedIdx:()=>selectedIdx,draw};})();
