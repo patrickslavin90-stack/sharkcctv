@@ -1,6 +1,6 @@
-// ── Google Maps Static API ───────────────────────────────────
-// Get key from console.cloud.google.com → Maps Static API
-const GOOGLE_MAPS_KEY = 'AIzaSyCxE5yNSOhZPcy8FgbaX0idJVUmvD-Wf7o';
+// ── Google Maps ──────────────────────────────────────────────
+// Key lives in Supabase Edge Function secrets only (GOOGLE_MAPS_KEY).
+// Frontend calls /functions/v1/maps-proxy — no key in client code.
 
 // ── Supabase config ──────────────────────────────────────────
 const SUPABASE_URL  = 'https://mvntodsdjftfjbcrvedn.supabase.co';
